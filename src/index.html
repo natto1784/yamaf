@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+   <head>
+      <title>{{TITLE}}</title>
+   </head>
+   <body>
+      <h1>{{TITLE}}</h1>
+      <p>
+         Use curl to upload:
+         <br>
+         <code>
+         curl -F file=@"[file]" {{USER_URL}}
+         </code>
+         <br>
+         <br>
+         If key is enabled then a field "key" will be required.
+         <br>
+         Make sure the key is the first field in the multipart before any files.
+         <br>
+         <code>
+         curl -F "key=[key]" -F file=@"[file]" -F file=@"[file2]" {{USER_URL}}
+         </code>
+      </p>
+      <form method="post" enctype="multipart/form-data">
+         {{KEY_FIELD}}
+         <input type="file" name="file" multiple>
+         <br>
+         <button type="submit">Upload</button>
+      </form>
+      <div id="progress-container"></div>
+</html>

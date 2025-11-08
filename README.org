@@ -1,0 +1,25 @@
+#+OPTIONS: toc:nil
+
+* Yet Another Mid Ahh Filehost
+
+- YAMAF is a yet another mid ahh filehost for personal use.
+- It is extremely simple and minimal and might break under niche circumstances like uploading many huge files.
+- It uses axum unlike its predecessors[fn:1][fn:2], both of which were written in rust some time ago now.
+
+** Environment Variables
+
+| Variable         | What it does                                                                        | Default                      |
+|------------------+-------------------------------------------------------------------------------------+------------------------------|
+| ROOT_DIR         | Directory where files are stored                                                    | /var/files                   |
+| KEY              | Optional key required to upload files                                               | None                         |
+| TITLE            | Title to be shown in the HTML                                                       | Yet Another Mid Ahh Filehost |
+| INTERNAL_HOST    | Internal host to bind the service to                                                | 127.0.0.1                    |
+| INTERNAL_PORT    | Internal port to bind the service to                                                | None                         |
+| EXTERNAL_HOST    | User facing domain name, used to return accessible URLs                             | ${INTERNAL_HOST}             |
+| EXTERNAL_HAS_TLS | URLs in html have https if set, otherwise http                                      | -                            |
+| MAX_FILES        | This does not actually limit the number of files, and used to calculate bodysize    | 10                           |
+| MAX_FILESIZE_MB  | Determines the max filesize possible, used to return failure and calculate bodysize | 100M                       |
+
+
+[fn:1] https://git.weirdnatto.in/natto1784/simple-filehost/
+[fn:2] https://git.weirdnatto.in/natto1784/simpler-filehost

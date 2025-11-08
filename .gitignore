@@ -1,0 +1,11 @@
+# Rust
+target/
+
+# Nix
+result/
+result-bin/
+direnv/
+
+# Emacs
+*~
+\#*#
