@@ -2,7 +2,7 @@ use axum::{
     Router,
     body::Body,
     extract::{DefaultBodyLimit, Multipart, Path},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Response},
     routing::get,
 };
@@ -120,6 +120,7 @@ enum YamafError {
     BadRequest(String),
     InternalError(String),
     FileTooBig(String),
+    FileNotFound,
 }
 
 impl IntoResponse for YamafError {
@@ -129,12 +130,12 @@ impl IntoResponse for YamafError {
             YamafError::InternalError(msg) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
             }
-
             YamafError::FileTooBig(filename) => (
                 StatusCode::PAYLOAD_TOO_LARGE,
                 format!("File {} is too big!", filename),
             )
                 .into_response(),
+            YamafError::FileNotFound => (StatusCode::NOT_FOUND, "File Not Found!").into_response(),
         }
     }
 }
@@ -233,11 +234,11 @@ async fn upload(mut payload: Multipart) -> Result<impl IntoResponse, YamafError>
                 }
 
                 responses.push(format!(
-                    r#"<a href="{proto}://{host}/{file}">{proto}://{host}/{file}</a> (size ~ {size}k)"#,
+                    r#"<a href="{proto}://{host}/{file}">{proto}://{host}/{file}</a> (size ~ {size:.2}k)"#,
                     proto = CONFIG.external_protocol,
                     host = CONFIG.external_host,
                     file = filename,
-                    size = written / 1024
+                    size = written as f64 / 1024 as f64
                 ));
             }
 
@@ -256,14 +257,35 @@ async fn upload(mut payload: Multipart) -> Result<impl IntoResponse, YamafError>
     .into_response())
 }
 
-async fn serve_file(Path(filename): Path<String>) -> impl IntoResponse {
+async fn serve_file(Path(filename): Path<String>) -> Result<impl IntoResponse, YamafError> {
     let path = PathBuf::from(&CONFIG.root_dir).join(&filename);
 
-    match File::open(&path).await {
-        Ok(file) => {
-            let stream = ReaderStream::new(file);
-            (StatusCode::OK, Body::from_stream(stream)).into_response()
-        }
-        Err(_) => (StatusCode::NOT_FOUND, "File not found!".to_string()).into_response(),
-    }
+    let metadata = tokio::fs::metadata(&path)
+        .await
+        .map_err(|_| YamafError::FileNotFound)?;
+    let file = File::open(&path)
+        .await
+        .map_err(|_| YamafError::FileNotFound)?;
+    let mime = mime_guess::from_path(&path).first_or_octet_stream();
+
+    let content_type = mime
+        .as_ref()
+        .parse()
+        .map_err(|_| YamafError::InternalError("Something went wrong".into()))?;
+    let content_length = metadata
+        .len()
+        .to_string()
+        .parse()
+        .map_err(|_| YamafError::InternalError("Something went wrong".into()))?;
+
+    let headers = HeaderMap::from_iter([
+        (header::CONTENT_TYPE, content_type),
+        (header::CONTENT_LENGTH, content_length),
+        (header::ACCEPT_RANGES, "bytes".parse().unwrap()),
+    ]);
+
+    let stream = ReaderStream::new(file);
+    let body = Body::from_stream(stream);
+
+    Ok((StatusCode::OK, headers, body).into_response())
 }
