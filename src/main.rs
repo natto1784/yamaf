@@ -155,10 +155,7 @@ fn clean_filename(filename: &str) -> String {
     let mut prev_dash = false;
 
     for c in filename.to_lowercase().chars() {
-        if c.is_ascii_alphanumeric() {
-            slug.push(c);
-            prev_dash = false;
-        } else if c == '.' {
+        if c.is_ascii_alphanumeric() || c == '.' {
             slug.push(c);
             prev_dash = false;
         } else if !prev_dash {
@@ -235,16 +232,20 @@ async fn upload(mut payload: Multipart) -> Result<impl IntoResponse, YamafError>
                         .map_err(|_| YamafError::InternalError("Internal i/o error".into()))?;
                 }
 
-                responses.push(format!(
-                    r#"<a href="{proto}://{host}/{file}">{proto}://{host}/{file}</a> (size ~ {size:.2}k)"#,
+                let url = format!(
+                    "{proto}://{host}/{file}",
                     proto = CONFIG.external_protocol,
                     host = CONFIG.external_host,
-                    file = filename,
+                    file = filename
+                );
+
+                responses.push(format!(
+                    r#"<a href="{url}">{url}</a> (<a href="{url}/embed">embed url</a>) (size ~ {size:.2}k)"#,
                     size = written as f64 / 1024 as f64
                 ));
             }
 
-            None | Some(_) => {}
+            _ => {}
         }
     }
 
