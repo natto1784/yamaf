@@ -11,6 +11,7 @@ use rand::{Rng, distr::Alphanumeric};
 use std::{env, net::SocketAddr, sync::LazyLock};
 use std::{env::VarError, path::PathBuf};
 use tokio::fs::File;
+use tokio::io::AsyncReadExt;
 use tokio_util::io::ReaderStream;
 
 struct Config {
@@ -76,7 +77,8 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(index).post(upload))
-        .route("/{filename}", get(serve_file))
+        .route("/{filename}", get(serve_file_as_stream))
+        .route("/{filename}/embed", get(serve_file_full))
         .layer(DefaultBodyLimit::max(CONFIG.max_bodysize));
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
@@ -153,10 +155,7 @@ fn clean_filename(filename: &str) -> String {
     let mut prev_dash = false;
 
     for c in filename.to_lowercase().chars() {
-        if c.is_ascii_alphanumeric() {
-            slug.push(c);
-            prev_dash = false;
-        } else if c == '.' {
+        if c.is_ascii_alphanumeric() || c == '.' {
             slug.push(c);
             prev_dash = false;
         } else if !prev_dash {
@@ -233,16 +232,20 @@ async fn upload(mut payload: Multipart) -> Result<impl IntoResponse, YamafError>
                         .map_err(|_| YamafError::InternalError("Internal i/o error".into()))?;
                 }
 
-                responses.push(format!(
-                    r#"<a href="{proto}://{host}/{file}">{proto}://{host}/{file}</a> (size ~ {size:.2}k)"#,
+                let url = format!(
+                    "{proto}://{host}/{file}",
                     proto = CONFIG.external_protocol,
                     host = CONFIG.external_host,
-                    file = filename,
+                    file = filename
+                );
+
+                responses.push(format!(
+                    r#"<a href="{url}">{url}</a> (<a href="{url}/embed">embed url</a>) (size ~ {size:.2}k)"#,
                     size = written as f64 / 1024 as f64
                 ));
             }
 
-            None | Some(_) => {}
+            _ => {}
         }
     }
 
@@ -257,7 +260,9 @@ async fn upload(mut payload: Multipart) -> Result<impl IntoResponse, YamafError>
     .into_response())
 }
 
-async fn serve_file(Path(filename): Path<String>) -> Result<impl IntoResponse, YamafError> {
+async fn serve_file_as_stream(
+    Path(filename): Path<String>,
+) -> Result<impl IntoResponse, YamafError> {
     let path = PathBuf::from(&CONFIG.root_dir).join(&filename);
 
     let metadata = tokio::fs::metadata(&path)
@@ -288,4 +293,36 @@ async fn serve_file(Path(filename): Path<String>) -> Result<impl IntoResponse, Y
     let body = Body::from_stream(stream);
 
     Ok((StatusCode::OK, headers, body).into_response())
+}
+
+async fn serve_file_full(Path(filename): Path<String>) -> Result<impl IntoResponse, YamafError> {
+    let path = PathBuf::from(&CONFIG.root_dir).join(&filename);
+    let mut file = tokio::fs::File::open(&path)
+        .await
+        .map_err(|_| YamafError::FileNotFound)?;
+    let mut file_data = vec![];
+    file.read_to_end(&mut file_data)
+        .await
+        .map_err(|_| YamafError::InternalError("Failed to read file".into()))?;
+
+    let metadata = tokio::fs::metadata(&path)
+        .await
+        .map_err(|_| YamafError::FileNotFound)?;
+    let mime = mime_guess::from_path(&path).first_or_octet_stream();
+    let content_type = mime
+        .as_ref()
+        .parse()
+        .map_err(|_| YamafError::InternalError("Something went wrong".into()))?;
+    let content_length = metadata
+        .len()
+        .to_string()
+        .parse()
+        .map_err(|_| YamafError::InternalError("Something went wrong".into()))?;
+
+    let headers = HeaderMap::from_iter([
+        (header::CONTENT_TYPE, content_type),
+        (header::CONTENT_LENGTH, content_length),
+    ]);
+
+    Ok((StatusCode::OK, headers, Body::from(file_data)).into_response())
 }
