@@ -6,11 +6,10 @@ use axum::{
     response::{Html, IntoResponse, Response},
     routing::get,
 };
-
 use rand::{Rng, distr::Alphanumeric};
 use std::{env, net::SocketAddr, sync::LazyLock};
 use std::{env::VarError, path::PathBuf};
-use tokio::fs::File;
+use tokio::fs;
 use tokio_util::io::ReaderStream;
 
 struct Config {
@@ -23,12 +22,14 @@ struct Config {
     external_protocol: &'static str,
     max_filesize: usize,
     max_bodysize: usize,
+    min_filedays: usize,
+    max_filedays: usize,
 }
 
 static CONFIG: LazyLock<Config> = LazyLock::new(|| {
     let root_dir = env::var("ROOT_DIR").unwrap_or_else(|_| "/var/files".to_string());
     let key = env::var("KEY");
-    let title = env::var("TITLE").unwrap_or_else(|_| "Simpler Filehost".to_string());
+    let title = env::var("TITLE").unwrap_or_else(|_| "Yet Another Mid Ahh Filehost".to_string());
 
     let internal_host = env::var("INTERNAL_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let internal_port = env::var("INTERNAL_PORT")
@@ -54,6 +55,18 @@ static CONFIG: LazyLock<Config> = LazyLock::new(|| {
         << 20;
     let max_bodysize = max_files * max_filesize * 2;
 
+    let min_filedays = env::var("MIN_FILEDAYS")
+        .ok()
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(30);
+
+    let max_filedays = env::var("MAX_FILEDAYS")
+        .ok()
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(365);
+
+    assert!(max_filedays >= min_filedays);
+
     Config {
         root_dir,
         key,
@@ -64,6 +77,8 @@ static CONFIG: LazyLock<Config> = LazyLock::new(|| {
         external_protocol,
         max_filesize,
         max_bodysize,
+        min_filedays,
+        max_filedays,
     }
 });
 
@@ -86,6 +101,35 @@ async fn main() {
         addr, CONFIG.root_dir
     );
 
+    /* cleanup cronjob */
+    #[cfg(feature = "cleanup")]
+    tokio::spawn(async move {
+        use chrono::{Local, NaiveDate};
+
+        let mut last_cleanup_day: NaiveDate = Local::now().date_naive();
+
+        loop {
+            use tokio::time::{Duration, sleep};
+
+            /* every 30 minutes */
+            sleep(Duration::from_secs(30 * 60)).await;
+
+            let now = Local::now();
+            let today = now.date_naive();
+
+            /* if the date changed, midnight has passed */
+            if today > last_cleanup_day {
+                println!("attempting cleanup at {}", now.to_string());
+                if let Err(e) = cleanup_directory().await {
+                    eprintln!("cleanup failed: {}", e);
+                } else {
+                    println!("cleanup succeeded!");
+                    last_cleanup_day = today;
+                }
+            }
+        }
+    });
+
     axum::serve(listener, app).await.unwrap();
 }
 
@@ -107,6 +151,19 @@ static INDEX_HTML: LazyLock<String> = LazyLock::new(|| {
             ""
         },
     );
+
+    if cfg!(feature = "cleanup") {
+        html = html
+            .replace("{{MAX_SIZE}}", &(CONFIG.max_filesize >> 20).to_string())
+            .replace("{{MAX_DAYS}}", &CONFIG.max_filedays.to_string())
+            .replace("{{MIN_DAYS}}", &CONFIG.min_filedays.to_string());
+    } else {
+        if let Some(start) = html.find("<!-- CLEANUP_START -->") {
+            if let Some(end) = html.find("<!-- CLEANUP_END -->") {
+                html.replace_range(start..end + "<!-- CLEANUP_END -->".len(), "");
+            }
+        }
+    }
 
     html
 });
@@ -205,7 +262,7 @@ async fn upload(mut payload: Multipart) -> Result<impl IntoResponse, YamafError>
 
                 let save_path = std::path::Path::new(&CONFIG.root_dir).join(&filename);
 
-                let mut file = File::create(&save_path)
+                let mut file = fs::File::create(&save_path)
                     .await
                     .map_err(|_| YamafError::InternalError("Internal i/o error".into()))?;
 
@@ -223,7 +280,7 @@ async fn upload(mut payload: Multipart) -> Result<impl IntoResponse, YamafError>
                         .ok_or_else(|| YamafError::BadRequest("File too large".into()))?;
 
                     if written > CONFIG.max_filesize {
-                        _ = tokio::fs::remove_file(&save_path).await;
+                        _ = fs::remove_file(&save_path).await;
 
                         return Err(YamafError::FileTooBig(filename));
                     }
@@ -260,10 +317,10 @@ async fn upload(mut payload: Multipart) -> Result<impl IntoResponse, YamafError>
 async fn serve_file(Path(filename): Path<String>) -> Result<impl IntoResponse, YamafError> {
     let path = PathBuf::from(&CONFIG.root_dir).join(&filename);
 
-    let metadata = tokio::fs::metadata(&path)
+    let metadata = fs::metadata(&path)
         .await
         .map_err(|_| YamafError::FileNotFound)?;
-    let file = File::open(&path)
+    let file = fs::File::open(&path)
         .await
         .map_err(|_| YamafError::FileNotFound)?;
     let mime = mime_guess::from_path(&path).first_or_octet_stream();
@@ -288,4 +345,37 @@ async fn serve_file(Path(filename): Path<String>) -> Result<impl IntoResponse, Y
     let body = Body::from_stream(stream);
 
     Ok((StatusCode::OK, headers, body).into_response())
+}
+
+#[cfg(feature = "cleanup")]
+async fn cleanup_directory() -> Result<(), std::io::Error> {
+    let dir = std::path::Path::new(&CONFIG.root_dir);
+    let mut entries = fs::read_dir(dir).await?;
+
+    while let Some(entry) = entries.next_entry().await? {
+        use std::os::unix::fs::MetadataExt;
+        use std::time::SystemTime;
+
+        let path = entry.path();
+        let meta = entry.metadata().await?;
+        let modified = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+        let age = SystemTime::now()
+            .duration_since(modified)
+            .unwrap_or_default();
+
+        /* min_days + (max_days - min_days) * (1 - size/max_size)^e */
+        let retention = (CONFIG.min_filedays as f64
+            + (CONFIG.max_filedays - CONFIG.min_filedays) as f64
+                * (1.0 - (meta.size() as f64 / CONFIG.max_filesize as f64))
+                    .powf(std::f64::consts::E))
+            * 24.0
+            * 60.0;
+
+        if meta.is_file() && age.as_secs_f64() > retention {
+            fs::remove_file(&path).await?;
+            println!("Deleted {:?}", path);
+        }
+    }
+
+    Ok(())
 }

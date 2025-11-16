@@ -47,17 +47,14 @@
 
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 
-        yamaf = craneLib.buildPackage (
-          commonArgs
-          // {
-            inherit cargoArtifacts;
-            doCheck = false;
-          }
-        );
+        yamaf = pkgs.callPackage ./nix/yamaf.nix {
+          inherit craneLib lib src;
+        };
       in
       {
         packages = {
           inherit yamaf;
+          yamaf-all = yamaf.override { withCleanup = true; };
           default = yamaf;
           image = pkgs.dockerTools.buildImage {
             name = "yamaf";

@@ -18,7 +18,19 @@
 | EXTERNAL_HOST    | User facing domain name, used to return accessible URLs                             | ${INTERNAL_HOST}             |
 | EXTERNAL_HAS_TLS | URLs in html have https if set, otherwise http                                      | -                            |
 | MAX_FILES        | This does not actually limit the number of files, and used to calculate bodysize    | 10                           |
-| MAX_FILESIZE_MB  | Determines the max filesize possible, used to return failure and calculate bodysize | 100M                       |
+| MAX_FILESIZE_MB  | Determines the max filesize possible, used to return failure and calculate bodysize | 100M                         |
+| MIN_FILEDAYS     | Minimum number of days for file retention                                           | 30 days                      |
+| MAX_FILEDAYS     | Maximum number of days for file retention                                           | 365 days                     |
+
+** Retention
+
+File retention is as per the following formula
+
+#+begin_src text
+retention = min_days + (max_days - min_days) * (1 - file_size / max_size)) ^ e
+#+end_src
+
+Cleanup happens everyday when midnight (IST) has passed
 
 
 [fn:1] https://git.weirdnatto.in/natto1784/simple-filehost/
