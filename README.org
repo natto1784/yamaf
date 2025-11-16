@@ -27,7 +27,7 @@
 File retention is as per the following formula
 
 #+begin_src text
-retention = min_days + (max_days - min_days) * (1 - file_size / max_size)) ^ e
+retention = min_days + (max_days - min_days) * (1 - file_size / max_size) ^ e
 #+end_src
 
 Cleanup happens everyday when midnight (IST) has passed
