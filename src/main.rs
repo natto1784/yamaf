@@ -227,79 +227,74 @@ fn clean_filename(filename: &str) -> String {
 
 async fn upload(mut payload: Multipart) -> Result<impl IntoResponse, YamafError> {
     let mut responses = Vec::new();
-    let mut found_key = false;
+
+    if let Ok(ref key) = CONFIG.key {
+        if let Some(field) = payload.next_field().await.unwrap() {
+            if field.name() == Some("key") {
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|e| YamafError::BadRequest(format!("Error reading key: {e}")))?;
+
+                let s = String::from_utf8(bytes.to_vec())
+                    .map_err(|_| YamafError::InternalError("Invalid key format".into()))?;
+
+                if s != *key {
+                    return Err(YamafError::BadRequest("Wrong key".into()));
+                }
+            } else {
+                return Err(YamafError::BadRequest("Missing key".into()));
+            }
+        } else {
+            return Err(YamafError::BadRequest("Missing key".into()));
+        }
+    }
 
     while let Some(mut field) = payload.next_field().await.unwrap() {
-        match field.name() {
-            Some("key") => {
-                if let Ok(ref key) = CONFIG.key {
-                    let bytes = field
-                        .bytes()
-                        .await
-                        .map_err(|e| YamafError::BadRequest(format!("Error reading key: {e}")))?;
+        if field.name() == Some("file") {
+            let filename = field
+                .file_name()
+                .map_or(format!("{}-upload", random(10)), |filename| {
+                    format!("{}-{}", random(4), clean_filename(filename))
+                });
 
-                    let s = String::from_utf8(bytes.to_vec())
-                        .map_err(|_| YamafError::InternalError("Invalid key format".into()))?;
+            let save_path = std::path::Path::new(&CONFIG.root_dir).join(&filename);
 
-                    if s != *key {
-                        return Err(YamafError::BadRequest("Wrong key".into()));
-                    }
+            let mut file = fs::File::create(&save_path)
+                .await
+                .map_err(|_| YamafError::InternalError("Internal i/o error".into()))?;
 
-                    found_key = true;
+            let mut written: usize = 0;
+
+            while let Some(chunk) = field
+                .chunk()
+                .await
+                .map_err(|err| YamafError::InternalError(err.to_string()))?
+            {
+                use tokio::io::AsyncWriteExt;
+
+                written = written
+                    .checked_add(chunk.len())
+                    .ok_or_else(|| YamafError::BadRequest("File too large".into()))?;
+
+                if written > CONFIG.max_filesize {
+                    _ = fs::remove_file(&save_path).await;
+
+                    return Err(YamafError::FileTooBig(filename));
                 }
-            }
 
-            Some("file") => {
-                if CONFIG.key.is_ok() && found_key == false {
-                    return Err(YamafError::BadRequest("Missing key".into()));
-                }
-
-                let filename = field
-                    .file_name()
-                    .map_or(format!("{}-upload", random(10)), |filename| {
-                        format!("{}-{}", random(4), clean_filename(filename))
-                    });
-
-                let save_path = std::path::Path::new(&CONFIG.root_dir).join(&filename);
-
-                let mut file = fs::File::create(&save_path)
+                file.write_all(&chunk)
                     .await
                     .map_err(|_| YamafError::InternalError("Internal i/o error".into()))?;
+            }
 
-                let mut written: usize = 0;
-
-                while let Some(chunk) = field
-                    .chunk()
-                    .await
-                    .map_err(|err| YamafError::InternalError(err.to_string()))?
-                {
-                    use tokio::io::AsyncWriteExt;
-
-                    written = written
-                        .checked_add(chunk.len())
-                        .ok_or_else(|| YamafError::BadRequest("File too large".into()))?;
-
-                    if written > CONFIG.max_filesize {
-                        _ = fs::remove_file(&save_path).await;
-
-                        return Err(YamafError::FileTooBig(filename));
-                    }
-
-                    file.write_all(&chunk)
-                        .await
-                        .map_err(|_| YamafError::InternalError("Internal i/o error".into()))?;
-                }
-
-                responses.push(format!(
+            responses.push(format!(
                     r#"<a href="{proto}://{host}/{file}">{proto}://{host}/{file}</a> (size ~ {size:.2}k)"#,
                     proto = CONFIG.external_protocol,
                     host = CONFIG.external_host,
                     file = filename,
                     size = written as f64 / 1024 as f64
                 ));
-            }
-
-            None | Some(_) => {}
         }
     }
 
