@@ -210,10 +210,7 @@ fn clean_filename(filename: &str) -> String {
     let mut prev_dash = false;
 
     for c in filename.to_lowercase().chars() {
-        if c.is_ascii_alphanumeric() {
-            slug.push(c);
-            prev_dash = false;
-        } else if c == '.' {
+        if c.is_ascii_alphanumeric() || c == '.' {
             slug.push(c);
             prev_dash = false;
         } else if !prev_dash {
@@ -225,8 +222,17 @@ fn clean_filename(filename: &str) -> String {
     slug.trim_matches('-').to_string()
 }
 
-async fn upload(mut payload: Multipart) -> Result<impl IntoResponse, YamafError> {
+async fn upload(
+    headers: HeaderMap,
+    mut payload: Multipart,
+) -> Result<impl IntoResponse, YamafError> {
     let mut responses = Vec::new();
+
+    let wants_html = headers
+        .get("accept")
+        .and_then(|h| h.to_str().ok())
+        .map(|a| a.contains("text/html"))
+        .unwrap_or(false);
 
     if let Ok(ref key) = CONFIG.key {
         if let Some(field) = payload.next_field().await.unwrap() {
@@ -288,13 +294,22 @@ async fn upload(mut payload: Multipart) -> Result<impl IntoResponse, YamafError>
                     .map_err(|_| YamafError::InternalError("Internal i/o error".into()))?;
             }
 
-            responses.push(format!(
-                    r#"<a href="{proto}://{host}/{file}">{proto}://{host}/{file}</a> (size ~ {size:.2}k)"#,
-                    proto = CONFIG.external_protocol,
-                    host = CONFIG.external_host,
-                    file = filename,
-                    size = written as f64 / 1024 as f64
+            let url = format!(
+                "{proto}://{host}/{file}",
+                proto = CONFIG.external_protocol,
+                host = CONFIG.external_host,
+                file = filename,
+            );
+
+            if wants_html {
+                responses.push(format!(
+                    r#"<a href="{url}">{url}</a> (size ~ {size:.2}k)"#,
+                    url = url,
+                    size = written as f64 / 1024.0,
                 ));
+            } else {
+                responses.push(url);
+            }
         }
     }
 
@@ -302,11 +317,15 @@ async fn upload(mut payload: Multipart) -> Result<impl IntoResponse, YamafError>
         return Err(YamafError::BadRequest("No files uploaded".into()));
     }
 
-    Ok(Html(format!(
-        "Here are your file(s):<br>{}",
-        responses.join("<br>")
-    ))
-    .into_response())
+    if wants_html {
+        Ok(Html(format!(
+            "Here are your file(s):<br>{}",
+            responses.join("<br>")
+        ))
+        .into_response())
+    } else {
+        Ok(responses.join("\n").into_response())
+    }
 }
 
 async fn serve_file(Path(filename): Path<String>) -> Result<impl IntoResponse, YamafError> {
