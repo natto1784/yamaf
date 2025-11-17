@@ -383,6 +383,7 @@ async fn cleanup_directory() -> Result<(), std::io::Error> {
                 * (1.0 - (meta.size() as f64 / CONFIG.max_filesize as f64))
                     .powf(std::f64::consts::E))
             * 24.0
+            * 60.0
             * 60.0;
 
         if meta.is_file() && age.as_secs_f64() > retention {
