@@ -25,9 +25,9 @@
     </code>
   </p>
 
-  <form method="post" enctype="multipart/form-data">
+  <form method="post" id="input_form" enctype="multipart/form-data">
     {{KEY_FIELD}}
-    <input type="file" name="file" multiple>
+    <input type="file" name="file" id="input_files" multiple>
     <br>
     <button type="submit">Upload</button>
   </form>
@@ -44,5 +44,16 @@
   Cleanup happens everyday when midnight (IST) has passed
   <!-- CLEANUP_END -->
 </body>
+
+<script>
+  input_form.onsubmit = (e) => {
+    if (input_files.files.length == 0) {
+      alert("no file nya :3")
+      return false;
+    }
+    return true;
+  }
+
+</script
 
 </html>
