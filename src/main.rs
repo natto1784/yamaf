@@ -234,25 +234,27 @@ async fn upload(
         .map(|a| a.contains("text/html"))
         .unwrap_or(false);
 
-    if let Ok(ref key) = CONFIG.key {
-        if let Some(field) = payload.next_field().await.unwrap() {
-            if field.name() == Some("key") {
-                let bytes = field
-                    .bytes()
-                    .await
-                    .map_err(|e| YamafError::BadRequest(format!("Error reading key: {e}")))?;
+    if let Some(expected_key) = CONFIG.key.as_ref() {
+        let field = payload
+            .next_field()
+            .await
+            .map_err(|e| YamafError::BadRequest(format!("Error reading multipart field: {e}")))?
+            .ok_or_else(|| YamafError::BadRequest("Missing key".into()))?;
 
-                let s = String::from_utf8(bytes.to_vec())
-                    .map_err(|_| YamafError::InternalError("Invalid key format".into()))?;
-
-                if s != *key {
-                    return Err(YamafError::BadRequest("Wrong key".into()));
-                }
-            } else {
-                return Err(YamafError::BadRequest("Missing key".into()));
-            }
-        } else {
+        if field.name() != Some("key") {
             return Err(YamafError::BadRequest("Missing key".into()));
+        }
+
+        let bytes = field
+            .bytes()
+            .await
+            .map_err(|e| YamafError::BadRequest(format!("Error reading key: {e}")))?;
+
+        let provided_key = String::from_utf8(bytes.to_vec())
+            .map_err(|_| YamafError::BadRequest("Invalid key format".into()))?;
+
+        if provided_key != *expected_key {
+            return Err(YamafError::BadRequest("Wrong key".into()));
         }
     }
 
