@@ -331,7 +331,7 @@ async fn upload(
         ))
         .into_response())
     } else {
-        Ok(responses.join("\n").into_response())
+        Ok((responses.join("\n") + "\n").into_response())
     }
 }
 
