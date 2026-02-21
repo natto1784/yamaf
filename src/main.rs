@@ -294,6 +294,13 @@ async fn upload(
                     .map_err(|_| YamafError::InternalError("Internal i/o error".into()))?;
             }
 
+            if 0 == written {
+                fs::remove_file(save_path)
+                    .await
+                    .map_err(|_| YamafError::InternalError("Internal i/o error".into()))?;
+                continue;
+            }
+
             let url = format!(
                 "{proto}://{host}/{file}",
                 proto = CONFIG.external_protocol,
@@ -324,7 +331,7 @@ async fn upload(
         ))
         .into_response())
     } else {
-        Ok(responses.join("\n").into_response())
+        Ok((responses.join("\n") + "\n").into_response())
     }
 }
 
