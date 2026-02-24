@@ -267,9 +267,10 @@ async fn upload(
 
             let save_path = std::path::Path::new(&CONFIG.root_dir).join(&filename);
 
-            let mut file = fs::File::create(&save_path)
-                .await
-                .map_err(|_| YamafError::InternalError("Internal i/o error".into()))?;
+            let mut file = fs::File::create(&save_path).await.map_err(|_| {
+                eprintln!("failed to create file at {}", save_path.display());
+                YamafError::InternalError("Internal i/o error".into())
+            })?;
 
             let mut written: usize = 0;
 
@@ -290,15 +291,17 @@ async fn upload(
                     return Err(YamafError::FileTooBig(filename));
                 }
 
-                file.write_all(&chunk)
-                    .await
-                    .map_err(|_| YamafError::InternalError("Internal i/o error".into()))?;
+                file.write_all(&chunk).await.map_err(|_| {
+                    eprintln!("failed to write to file {}", save_path.display());
+                    YamafError::InternalError("Internal i/o error".into())
+                })?;
             }
 
             if 0 == written {
-                fs::remove_file(&save_path)
-                    .await
-                    .map_err(|_| YamafError::InternalError("Internal i/o error".into()))?;
+                fs::remove_file(&save_path).await.map_err(|_| {
+                    eprintln!("failed to remove file {}", save_path.display());
+                    YamafError::InternalError("Internal i/o error".into())
+                })?;
                 continue;
             }
 
