@@ -7,7 +7,7 @@ use axum::{
     routing::get,
 };
 use rand::{Rng, distr::Alphanumeric};
-use std::{env, net::SocketAddr, sync::LazyLock};
+use std::{env, io::Write, net::SocketAddr, sync::LazyLock};
 use std::{env::VarError, path::PathBuf};
 use tokio::fs;
 use tokio_util::io::ReaderStream;
@@ -84,7 +84,7 @@ static CONFIG: LazyLock<Config> = LazyLock::new(|| {
 });
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), std::io::Error> {
     let addr = SocketAddr::new(
         CONFIG.internal_host.parse().expect("Invalid Host Bind"),
         CONFIG.internal_port,
@@ -101,6 +101,11 @@ async fn main() {
         "Starting server on {} for directory {}",
         addr, CONFIG.root_dir
     );
+
+    if !mkdir_root().await? {
+        eprintln!("Exiting.");
+        return Ok(());
+    }
 
     /* cleanup cronjob */
     #[cfg(feature = "cleanup")]
@@ -132,6 +137,8 @@ async fn main() {
     });
 
     axum::serve(listener, app).await.unwrap();
+
+    Ok(())
 }
 
 static INDEX_HTML: LazyLock<String> = LazyLock::new(|| {
@@ -370,6 +377,37 @@ async fn serve_file(Path(filename): Path<String>) -> Result<impl IntoResponse, Y
     let body = Body::from_stream(stream);
 
     Ok((StatusCode::OK, headers, body).into_response())
+}
+
+async fn mkdir_root() -> Result<bool, std::io::Error> {
+    let dir = std::path::Path::new(&CONFIG.root_dir);
+
+    if dir.exists() {
+        return Ok(true);
+    }
+
+    print!(
+        "Do you want to create directory '{}' ? (y/n): ",
+        CONFIG.root_dir
+    );
+
+    std::io::stdout().flush()?;
+
+    let mut input = String::new();
+    std::io::stdin()
+        .read_line(&mut input)
+        .expect("Failed to read input");
+
+    let input = input.trim().to_lowercase();
+
+    if input == "y" || input == "yes" {
+        fs::create_dir(&CONFIG.root_dir).await?;
+        eprintln!("Directory created successfully.");
+        Ok(true)
+    } else {
+        eprintln!("Directory creation cancelled.");
+        Ok(false)
+    }
 }
 
 #[cfg(feature = "cleanup")]
