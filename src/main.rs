@@ -296,7 +296,7 @@ async fn upload(
             }
 
             if 0 == written {
-                fs::remove_file(save_path)
+                fs::remove_file(&save_path)
                     .await
                     .map_err(|_| YamafError::InternalError("Internal i/o error".into()))?;
                 continue;
