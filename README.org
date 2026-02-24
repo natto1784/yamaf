@@ -8,19 +8,19 @@
 
 ** Environment Variables
 
-| Variable         | What it does                                                                        | Default                      |
-|------------------+-------------------------------------------------------------------------------------+------------------------------|
-| ROOT_DIR         | Directory where files are stored                                                    | /var/files                   |
-| KEY              | Optional key required to upload files                                               | None                         |
-| TITLE            | Title to be shown in the HTML                                                       | Yet Another Mid Ahh Filehost |
-| INTERNAL_HOST    | Internal host to bind the service to                                                | 127.0.0.1                    |
-| INTERNAL_PORT    | Internal port to bind the service to                                                | None                         |
-| EXTERNAL_HOST    | User facing domain name, used to return accessible URLs                             | ${INTERNAL_HOST}             |
-| EXTERNAL_HAS_TLS | URLs in html have https if set, otherwise http                                      | -                            |
-| MAX_FILES        | This does not actually limit the number of files, and used to calculate bodysize    | 10                           |
-| MAX_FILESIZE_MB  | Determines the max filesize possible, used to return failure and calculate bodysize | 100M                         |
-| MIN_FILEDAYS     | Minimum number of days for file retention                                           | 30 days                      |
-| MAX_FILEDAYS     | Maximum number of days for file retention                                           | 365 days                     |
+| Variable         | What it does                                                                        | Default                           |
+|------------------+-------------------------------------------------------------------------------------+-----------------------------------|
+| ROOT_DIR         | Directory where files are stored                                                    | /var/files                        |
+| KEY              | Optional key required to upload files                                               | None                              |
+| TITLE            | Title to be shown in the HTML                                                       | Yet Another Mid Ahh Filehost      |
+| INTERNAL_HOST    | Internal host to bind the service to                                                | 127.0.0.1                         |
+| INTERNAL_PORT    | Internal port to bind the service to                                                | None                              |
+| EXTERNAL_HOST    | User facing domain name, used to return accessible URLs                             | ${INTERNAL_HOST}:${INTERNAL_PORT} |
+| EXTERNAL_HAS_TLS | URLs in html have https if set, otherwise http                                      | -                                 |
+| MAX_FILES        | This does not actually limit the number of files, and used to calculate bodysize    | 10                                |
+| MAX_FILESIZE_MB  | Determines the max filesize possible, used to return failure and calculate bodysize | 100M                              |
+| MIN_FILEDAYS     | Minimum number of days for file retention                                           | 30 days                           |
+| MAX_FILEDAYS     | Maximum number of days for file retention                                           | 365 days                          |
 
 ** Retention
 

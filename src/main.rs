@@ -37,7 +37,8 @@ static CONFIG: LazyLock<Config> = LazyLock::new(|| {
         .and_then(|x| x.parse().ok())
         .unwrap_or(8000);
 
-    let external_host = env::var("EXTERNAL_HOST").unwrap_or_else(|_| internal_host.clone());
+    let external_host = env::var("EXTERNAL_HOST")
+        .unwrap_or_else(|_| format!("{}:{}", internal_host, internal_port));
     let external_protocol = if env::var("EXTERNAL_HAS_TLS").is_ok() {
         "https"
     } else {
